@@ -1,0 +1,24 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "peter-sync menu",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "peter_sync",
+      "console": "integratedTerminal",
+      "cwd": "${workspaceFolder}",
+      "justMyCode": true
+    },
+    {
+      "name": "peter-sync list",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "peter_sync",
+      "args": ["list"],
+      "console": "integratedTerminal",
+      "cwd": "${workspaceFolder}",
+      "justMyCode": true
+    }
+  ]
+}

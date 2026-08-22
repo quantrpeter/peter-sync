@@ -1,0 +1,201 @@
+"""Command-line interface and interactive menu for peter-sync."""
+
+from __future__ import annotations
+
+import argparse
+import sys
+from pathlib import Path
+
+from peter_sync import __version__
+from peter_sync.settings import DEFAULT_SETTINGS_PATH, FolderPair, SettingsError, SettingsStore
+from peter_sync.sync import SyncError, SyncResult, sync_pair
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = _build_parser()
+    args = parser.parse_args(argv)
+    store = SettingsStore(Path(args.settings) if args.settings else None)
+
+    try:
+        store.load()
+        if args.command is None:
+            return _run_menu(store)
+        return args.func(store, args)
+    except (SettingsError, SyncError, OSError) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+
+
+def _build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        prog="peter-sync",
+        description="Keep two folders in bidirectional sync.",
+    )
+    parser.add_argument(
+        "--settings",
+        help=f"Path to settings JSON (default: {DEFAULT_SETTINGS_PATH})",
+    )
+    parser.add_argument("--version", action="version", version=f"peter-sync {__version__}")
+    sub = parser.add_subparsers(dest="command")
+
+    list_parser = sub.add_parser("list", help="List saved folder pairs")
+    list_parser.set_defaults(func=_cmd_list)
+
+    add_parser = sub.add_parser("add", help="Add a folder pair")
+    add_parser.add_argument("name", help="Name for this pair")
+    add_parser.add_argument("left", help="First folder")
+    add_parser.add_argument("right", help="Second folder")
+    add_parser.set_defaults(func=_cmd_add)
+
+    remove_parser = sub.add_parser("remove", help="Remove a folder pair")
+    remove_parser.add_argument("name", help="Name of the pair to remove")
+    remove_parser.set_defaults(func=_cmd_remove)
+
+    sync_parser = sub.add_parser("sync", help="Sync one pair or all pairs")
+    sync_parser.add_argument("name", nargs="?", help="Pair name (omit to sync all)")
+    sync_parser.set_defaults(func=_cmd_sync)
+
+    menu_parser = sub.add_parser("menu", help="Open the interactive menu")
+    menu_parser.set_defaults(func=lambda store, _args: _run_menu(store))
+    return parser
+
+
+def _cmd_list(store: SettingsStore, _args: argparse.Namespace) -> int:
+    _print_pairs(store)
+    return 0
+
+
+def _cmd_add(store: SettingsStore, args: argparse.Namespace) -> int:
+    pair = store.add_pair(args.name, args.left, args.right)
+    print(f"Added pair {pair.name!r}")
+    print(f"  left : {pair.left}")
+    print(f"  right: {pair.right}")
+    return 0
+
+
+def _cmd_remove(store: SettingsStore, args: argparse.Namespace) -> int:
+    pair = store.remove_pair(args.name)
+    print(f"Removed pair {pair.name!r}")
+    return 0
+
+
+def _cmd_sync(store: SettingsStore, args: argparse.Namespace) -> int:
+    if args.name:
+        pairs = [store.get_pair(args.name)]
+    else:
+        pairs = list(store.pairs)
+    if not pairs:
+        print("No folder pairs configured.")
+        return 0
+    for pair in pairs:
+        _sync_and_save(store, pair)
+    return 0
+
+
+def _run_menu(store: SettingsStore) -> int:
+    actions = {
+        "1": lambda: _print_pairs(store),
+        "2": lambda: _menu_add(store),
+        "3": lambda: _menu_remove(store),
+        "4": lambda: _menu_sync_all(store),
+        "5": lambda: _menu_sync_one(store),
+        "6": lambda: _print_settings_path(store),
+    }
+    while True:
+        print()
+        print("peter-sync")
+        print("----------")
+        print("1) List folder pairs")
+        print("2) Add folder pair")
+        print("3) Remove folder pair")
+        print("4) Sync all pairs")
+        print("5) Sync one pair")
+        print("6) Show settings file")
+        print("q) Quit")
+        try:
+            choice = input("Select an option: ").strip().lower()
+        except EOFError:
+            print()
+            return 0
+        if choice in {"q", "quit", "exit"}:
+            return 0
+        action = actions.get(choice)
+        if action is None:
+            print("Unknown option.")
+            continue
+        try:
+            action()
+        except (SettingsError, SyncError, OSError) as exc:
+            print(f"error: {exc}")
+
+
+def _menu_add(store: SettingsStore) -> None:
+    name = input("Pair name: ").strip()
+    left = input("Left folder: ").strip()
+    right = input("Right folder: ").strip()
+    pair = store.add_pair(name, left, right)
+    print(f"Saved pair {pair.name!r}")
+
+
+def _menu_remove(store: SettingsStore) -> None:
+    if not store.pairs:
+        print("No folder pairs configured.")
+        return
+    _print_pairs(store)
+    name = input("Name to remove: ").strip()
+    pair = store.remove_pair(name)
+    print(f"Removed pair {pair.name!r}")
+
+
+def _menu_sync_all(store: SettingsStore) -> None:
+    if not store.pairs:
+        print("No folder pairs configured.")
+        return
+    for pair in store.pairs:
+        _sync_and_save(store, pair)
+
+
+def _menu_sync_one(store: SettingsStore) -> None:
+    if not store.pairs:
+        print("No folder pairs configured.")
+        return
+    _print_pairs(store)
+    name = input("Pair name to sync: ").strip()
+    _sync_and_save(store, store.get_pair(name))
+
+
+def _sync_and_save(store: SettingsStore, pair: FolderPair) -> SyncResult:
+    left, right = pair.resolved()
+    result = sync_pair(left, right, snapshot=pair.snapshot)
+    store.update_snapshot(pair.name, result.snapshot)
+    _print_result(pair.name, result)
+    return result
+
+
+def _print_pairs(store: SettingsStore) -> None:
+    if not store.pairs:
+        print("No folder pairs configured.")
+        return
+    print(f"Settings: {store.path}")
+    for index, pair in enumerate(store.pairs, start=1):
+        print(f"{index}. {pair.name}")
+        print(f"   left : {pair.left}")
+        print(f"   right: {pair.right}")
+
+
+def _print_settings_path(store: SettingsStore) -> None:
+    print(f"Settings file: {store.path}")
+    print(f"Exists: {'yes' if store.path.exists() else 'no'}")
+
+
+def _print_result(name: str, result: SyncResult) -> None:
+    print(
+        f"Synced {name!r}: {len(result.copied)} copied, {len(result.deleted)} deleted, "
+        f"{len(result.skipped)} unchanged, {len(result.conflicts)} conflicts"
+    )
+    for action in result.copied:
+        print(f"  copy   {action.source} -> {action.destination}")
+    for action in result.deleted:
+        print(f"  delete {action.source}")
+    for relative in result.conflicts:
+        print(f"  conflict {relative} (same mtime, different content)")
