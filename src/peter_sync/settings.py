@@ -20,14 +20,16 @@ def normalize_exclude(patterns: Iterable[str] | None) -> list[str]:
     for raw in patterns or []:
         if not isinstance(raw, str):
             raise SettingsError("Each exclude must be a string.")
-        pattern = raw.strip().replace("\\", "/").strip("/")
-        if not pattern:
+        stripped = raw.strip()
+        if not stripped:
             continue
+        candidate = stripped.replace("\\", "/")
+        if Path(stripped).is_absolute() or candidate.startswith("/"):
+            raise SettingsError(f"Exclude must be a relative folder: {raw}")
+        pattern = candidate.strip("/")
         parts = [part for part in pattern.split("/") if part and part != "."]
         if not parts or any(part == ".." for part in parts):
             raise SettingsError(f"Invalid exclude folder: {raw}")
-        if Path(pattern).is_absolute() or pattern.startswith("/"):
-            raise SettingsError(f"Exclude must be a relative folder: {raw}")
         pattern = "/".join(parts)
         if pattern not in seen:
             seen.add(pattern)
