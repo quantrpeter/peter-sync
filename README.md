@@ -29,8 +29,12 @@ peter-sync add notes ~/Documents/Notes ~/Dropbox/Notes
 peter-sync list
 peter-sync sync notes
 peter-sync sync
+peter-sync watch notes
+peter-sync watch --interval 5
 peter-sync remove notes
 ```
+
+`watch` is a long-running process. It polls the folders on an interval (default 2 seconds), reloads settings each cycle, and keeps copying or deleting until you press Ctrl+C. Omit the pair name to watch every saved pair.
 
 Settings are stored at `~/.peter-sync/settings.json` unless you pass `--settings`.
 

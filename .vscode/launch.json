@@ -19,6 +19,16 @@
       "console": "integratedTerminal",
       "cwd": "${workspaceFolder}",
       "justMyCode": true
+    },
+    {
+      "name": "peter-sync watch",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "peter_sync",
+      "args": ["watch"],
+      "console": "integratedTerminal",
+      "cwd": "${workspaceFolder}",
+      "justMyCode": true
     }
   ]
 }

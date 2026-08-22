@@ -9,6 +9,7 @@ from pathlib import Path
 from peter_sync import __version__
 from peter_sync.settings import DEFAULT_SETTINGS_PATH, FolderPair, SettingsError, SettingsStore
 from peter_sync.sync import SyncError, SyncResult, sync_pair
+from peter_sync.watch import run_watch
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -55,6 +56,24 @@ def _build_parser() -> argparse.ArgumentParser:
     sync_parser.add_argument("name", nargs="?", help="Pair name (omit to sync all)")
     sync_parser.set_defaults(func=_cmd_sync)
 
+    watch_parser = sub.add_parser("watch", help="Keep syncing pairs until stopped")
+    watch_parser.add_argument("name", nargs="?", help="Pair name (omit to watch all)")
+    watch_parser.add_argument(
+        "--interval",
+        type=float,
+        default=2.0,
+        metavar="SECONDS",
+        help="Seconds between syncs (default: 2)",
+    )
+    watch_parser.add_argument(
+        "--cycles",
+        type=int,
+        default=None,
+        metavar="N",
+        help="Stop after N sync cycles (default: run until interrupted)",
+    )
+    watch_parser.set_defaults(func=_cmd_watch)
+
     menu_parser = sub.add_parser("menu", help="Open the interactive menu")
     menu_parser.set_defaults(func=lambda store, _args: _run_menu(store))
     return parser
@@ -92,6 +111,24 @@ def _cmd_sync(store: SettingsStore, args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_watch(store: SettingsStore, args: argparse.Namespace) -> int:
+    target = args.name or "all pairs"
+    if args.cycles is None:
+        print(f"Watching {target} every {args.interval}s. Press Ctrl+C to stop.")
+    try:
+        return run_watch(
+            store,
+            name=args.name,
+            interval=args.interval,
+            cycles=args.cycles,
+            on_result=_print_result,
+            on_status=print,
+        )
+    except KeyboardInterrupt:
+        print("\nStopped watching.")
+        return 0
+
+
 def _run_menu(store: SettingsStore) -> int:
     actions = {
         "1": lambda: _print_pairs(store),
@@ -99,7 +136,8 @@ def _run_menu(store: SettingsStore) -> int:
         "3": lambda: _menu_remove(store),
         "4": lambda: _menu_sync_all(store),
         "5": lambda: _menu_sync_one(store),
-        "6": lambda: _print_settings_path(store),
+        "6": lambda: _menu_watch(store),
+        "7": lambda: _print_settings_path(store),
     }
     while True:
         print()
@@ -110,7 +148,8 @@ def _run_menu(store: SettingsStore) -> int:
         print("3) Remove folder pair")
         print("4) Sync all pairs")
         print("5) Sync one pair")
-        print("6) Show settings file")
+        print("6) Watch (keep syncing)")
+        print("7) Show settings file")
         print("q) Quit")
         try:
             choice = input("Select an option: ").strip().lower()
@@ -162,6 +201,24 @@ def _menu_sync_one(store: SettingsStore) -> None:
     _print_pairs(store)
     name = input("Pair name to sync: ").strip()
     _sync_and_save(store, store.get_pair(name))
+
+
+def _menu_watch(store: SettingsStore) -> None:
+    if not store.pairs:
+        print("No folder pairs configured.")
+        return
+    _print_pairs(store)
+    name = input("Pair name to watch (blank for all): ").strip() or None
+    raw = input("Interval in seconds [2]: ").strip()
+    try:
+        interval = float(raw) if raw else 2.0
+    except ValueError as exc:
+        raise SettingsError(f"Invalid interval: {raw}") from exc
+    print(f"Watching every {interval}s. Press Ctrl+C to stop.")
+    try:
+        run_watch(store, name=name, interval=interval, on_result=_print_result, on_status=print)
+    except KeyboardInterrupt:
+        print("\nStopped watching.")
 
 
 def _sync_and_save(store: SettingsStore, pair: FolderPair) -> SyncResult:
