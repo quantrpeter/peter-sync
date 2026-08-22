@@ -45,6 +45,7 @@ def sync_pair(
     right: Path,
     *,
     snapshot: Iterable[str] | None = None,
+    exclude: Iterable[str] | None = None,
 ) -> SyncResult:
     """Sync two folders both ways using last-write-wins.
 
@@ -56,6 +57,10 @@ def sync_pair(
     sync. New files (not in the snapshot) are copied to the other side.
     Files that disappear from one side after being snapshotted are
     deleted from the other side.
+
+    ``exclude`` is a list of folder names or relative folder paths.
+    A bare name such as ``node_modules`` matches that folder anywhere.
+    A path such as ``build/tmp`` matches only that relative folder.
     """
     left = left.expanduser().resolve()
     right = right.expanduser().resolve()
@@ -66,10 +71,11 @@ def sync_pair(
     if left == right:
         raise SyncError("Left and right folders must be different.")
 
+    excluded = _normalize_exclude(exclude)
     result = SyncResult()
-    known = set(snapshot or [])
-    left_files = _index_files(left)
-    right_files = _index_files(right)
+    known = {path for path in (snapshot or []) if not _is_excluded(path, excluded)}
+    left_files = _index_files(left, excluded)
+    right_files = _index_files(right, excluded)
     relative_paths = set(left_files) | set(right_files) | known
 
     for relative in sorted(relative_paths):
@@ -89,11 +95,38 @@ def sync_pair(
             else:
                 _copy_file(right_file, left / relative, result)
 
-    result.snapshot = sorted(set(_index_files(left)) | set(_index_files(right)))
+    result.snapshot = sorted(set(_index_files(left, excluded)) | set(_index_files(right, excluded)))
     return result
 
 
-def _index_files(root: Path) -> dict[str, Path]:
+def _normalize_exclude(patterns: Iterable[str] | None) -> tuple[str, ...]:
+    normalized: list[str] = []
+    seen: set[str] = set()
+    for raw in patterns or []:
+        pattern = str(raw).strip().replace("\\", "/").strip("/")
+        if pattern and pattern not in seen:
+            seen.add(pattern)
+            normalized.append(pattern)
+    return tuple(normalized)
+
+
+def _is_excluded(relative: str, excluded: Iterable[str]) -> bool:
+    path = relative.replace("\\", "/").strip("/")
+    if not path:
+        return False
+    parts = path.split("/")
+    for pattern in excluded:
+        if not pattern:
+            continue
+        if "/" in pattern:
+            if path == pattern or path.startswith(f"{pattern}/"):
+                return True
+        elif pattern in parts[:-1] or path == pattern:
+            return True
+    return False
+
+
+def _index_files(root: Path, excluded: Iterable[str] = ()) -> dict[str, Path]:
     files: dict[str, Path] = {}
     for path in root.rglob("*"):
         if not path.is_file():
@@ -101,6 +134,8 @@ def _index_files(root: Path) -> dict[str, Path]:
         if path.name in IGNORE_NAMES:
             continue
         relative = path.relative_to(root).as_posix()
+        if _is_excluded(relative, excluded):
+            continue
         files[relative] = path
     return files
 

@@ -16,13 +16,15 @@ def test_add_and_list_pairs(tmp_path: Path) -> None:
     store = SettingsStore(tmp_path / "settings.json")
     store.load()
 
-    pair = store.add_pair("docs", str(left), str(right))
+    pair = store.add_pair("docs", str(left), str(right), exclude=["node_modules", "build/tmp"])
 
     assert pair.name == "docs"
     assert Path(pair.left) == left.resolve()
     assert Path(pair.right) == right.resolve()
+    assert pair.exclude == ["node_modules", "build/tmp"]
     saved = json.loads((tmp_path / "settings.json").read_text(encoding="utf-8"))
     assert saved["pairs"][0]["name"] == "docs"
+    assert saved["pairs"][0]["exclude"] == ["node_modules", "build/tmp"]
 
 
 def test_rejects_duplicate_name(tmp_path: Path) -> None:
@@ -71,3 +73,52 @@ def test_snapshot_round_trip(tmp_path: Path) -> None:
     reloaded = SettingsStore(tmp_path / "settings.json")
     reloaded.load()
     assert reloaded.get_pair("docs").snapshot == ["notes.txt"]
+
+
+def test_exclude_round_trip_and_update(tmp_path: Path) -> None:
+    left = tmp_path / "left"
+    right = tmp_path / "right"
+    left.mkdir()
+    right.mkdir()
+    store = SettingsStore(tmp_path / "settings.json")
+    store.add_pair("docs", str(left), str(right), exclude=[".git", "node_modules"])
+
+    store.update_exclude("docs", ["node_modules", "dist", "node_modules"])
+    reloaded = SettingsStore(tmp_path / "settings.json")
+    reloaded.load()
+    assert reloaded.get_pair("docs").exclude == ["node_modules", "dist"]
+
+
+def test_exclude_rejects_absolute_and_parent_paths(tmp_path: Path) -> None:
+    left = tmp_path / "left"
+    right = tmp_path / "right"
+    left.mkdir()
+    right.mkdir()
+    store = SettingsStore(tmp_path / "settings.json")
+    store.add_pair("docs", str(left), str(right))
+
+    with pytest.raises(SettingsError, match="relative folder"):
+        store.update_exclude("docs", [str(tmp_path / "secret")])
+    with pytest.raises(SettingsError, match="Invalid exclude"):
+        store.update_exclude("docs", ["../outside"])
+
+
+def test_legacy_pair_without_exclude_loads(tmp_path: Path) -> None:
+    settings = tmp_path / "settings.json"
+    settings.write_text(
+        json.dumps(
+            {
+                "pairs": [
+                    {
+                        "name": "docs",
+                        "left": str(tmp_path / "left"),
+                        "right": str(tmp_path / "right"),
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    store = SettingsStore(settings)
+    store.load()
+    assert store.get_pair("docs").exclude == []

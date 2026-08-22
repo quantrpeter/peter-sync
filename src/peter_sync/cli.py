@@ -46,11 +46,41 @@ def _build_parser() -> argparse.ArgumentParser:
     add_parser.add_argument("name", help="Name for this pair")
     add_parser.add_argument("left", help="First folder")
     add_parser.add_argument("right", help="Second folder")
+    add_parser.add_argument(
+        "--exclude",
+        action="append",
+        default=[],
+        metavar="FOLDER",
+        help="Folder to skip (repeatable). Bare names match anywhere.",
+    )
     add_parser.set_defaults(func=_cmd_add)
 
     remove_parser = sub.add_parser("remove", help="Remove a folder pair")
     remove_parser.add_argument("name", help="Name of the pair to remove")
     remove_parser.set_defaults(func=_cmd_remove)
+
+    exclude_parser = sub.add_parser("exclude", help="List or change excluded folders for a pair")
+    exclude_parser.add_argument("name", help="Pair name")
+    exclude_group = exclude_parser.add_mutually_exclusive_group()
+    exclude_group.add_argument(
+        "--add",
+        nargs="+",
+        metavar="FOLDER",
+        help="Add one or more excluded folders",
+    )
+    exclude_group.add_argument(
+        "--remove",
+        nargs="+",
+        metavar="FOLDER",
+        help="Remove one or more excluded folders",
+    )
+    exclude_group.add_argument(
+        "--set",
+        nargs="*",
+        metavar="FOLDER",
+        help="Replace the exclude list (omit folders to clear)",
+    )
+    exclude_parser.set_defaults(func=_cmd_exclude)
 
     sync_parser = sub.add_parser("sync", help="Sync one pair or all pairs")
     sync_parser.add_argument("name", nargs="?", help="Pair name (omit to sync all)")
@@ -85,16 +115,37 @@ def _cmd_list(store: SettingsStore, _args: argparse.Namespace) -> int:
 
 
 def _cmd_add(store: SettingsStore, args: argparse.Namespace) -> int:
-    pair = store.add_pair(args.name, args.left, args.right)
+    pair = store.add_pair(args.name, args.left, args.right, exclude=args.exclude)
     print(f"Added pair {pair.name!r}")
     print(f"  left : {pair.left}")
     print(f"  right: {pair.right}")
+    _print_exclude(pair.exclude)
     return 0
 
 
 def _cmd_remove(store: SettingsStore, args: argparse.Namespace) -> int:
     pair = store.remove_pair(args.name)
     print(f"Removed pair {pair.name!r}")
+    return 0
+
+
+def _cmd_exclude(store: SettingsStore, args: argparse.Namespace) -> int:
+    pair = store.get_pair(args.name)
+    if args.add is not None:
+        pair = store.update_exclude(args.name, [*pair.exclude, *args.add])
+        print(f"Updated excludes for {pair.name!r}")
+    elif args.remove is not None:
+        removing = {item.strip().replace("\\", "/").strip("/") for item in args.remove}
+        remaining = [item for item in pair.exclude if item not in removing]
+        missing = sorted(removing - set(pair.exclude))
+        pair = store.update_exclude(args.name, remaining)
+        print(f"Updated excludes for {pair.name!r}")
+        for item in missing:
+            print(f"  not excluded: {item}")
+    elif args.set is not None:
+        pair = store.update_exclude(args.name, args.set)
+        print(f"Updated excludes for {pair.name!r}")
+    _print_exclude(pair.exclude)
     return 0
 
 
@@ -116,19 +167,21 @@ def _cmd_watch(store: SettingsStore, args: argparse.Namespace) -> int:
     if args.cycles is None:
         print(f"Watching {target} every {args.interval}s. Press Ctrl+C to stop.")
     try:
-        return run_watch(
-            store,
-            name=args.name,
-            interval=args.interval,
-            cycles=args.cycles,
-            on_result=_print_result,
-            on_status=print,
-        )
-    except KeyboardInterrupt:
-        print("\nStopped watching.")
-        return 0
-
-
+        return run_watmenu_exclude(store),
+        "8": lambda: _print_settings_path(store),
+    }
+    while True:
+        print()
+        print("peter-sync")
+        print("----------")
+        print("1) List folder pairs")
+        print("2) Add folder pair")
+        print("3) Remove folder pair")
+        print("4) Sync all pairs")
+        print("5) Sync one pair")
+        print("6) Watch (keep syncing)")
+        print("7) Edit excluded folders")
+        print("8
 def _run_menu(store: SettingsStore) -> int:
     actions = {
         "1": lambda: _print_pairs(store),
@@ -170,8 +223,11 @@ def _run_menu(store: SettingsStore) -> int:
 
 def _menu_add(store: SettingsStore) -> None:
     name = input("Pair name: ").strip()
-    left = input("Left folder: ").strip()
-    right = input("Right folder: ").strip()
+    raw_exclude = input("Exclude folders (comma-separated, blank for none): ").strip()
+    exclude = [item.strip() for item in raw_exclude.split(",") if item.strip()]
+    pair = store.add_pair(name, left, right, exclude=exclude)
+    print(f"Saved pair {pair.name!r}")
+    _print_exclude(pair.excludetrip()
     pair = store.add_pair(name, left, right)
     print(f"Saved pair {pair.name!r}")
 
@@ -216,10 +272,34 @@ def _menu_watch(store: SettingsStore) -> None:
         raise SettingsError(f"Invalid interval: {raw}") from exc
     print(f"Watching every {interval}s. Press Ctrl+C to stop.")
     try:
-        run_watch(store, name=name, interval=interval, on_result=_print_result, on_status=print)
-    except KeyboardInterrupt:
-        print("\nStopped watching.")
+     menu_exclude(store: SettingsStore) -> None:
+    if not store.pairs:
+        print("No folder pairs configured.")
+        return
+    _print_pairs(store)
+    name = input("Pair name to edit excludes: ").strip()
+    pair = store.get_pair(name)
+    _print_exclude(pair.exclude)
+    raw = input("New exclude list (comma-separated, blank to clear): ").strip()
+    exclude = [item.strip() for item in raw.split(",") if item.strip()]
+    pair = store.update_exclude(name, exclude)
+    print(f"Updated excludes for {pair.name!r}")
+    _print_exclude(pair.exclude)
 
+
+def _sync_and_save(store: SettingsStore, pair: FolderPair) -> SyncResult:
+    left, right = pair.resolved()
+    result = sync_pair(left, right, snapshot=pair.snapshot, exclude=pair.exclude
+
+        if pair.exclude:
+            print(f"   exclude: {', '.join(pair.exclude)}")
+
+
+def _print_exclude(exclude: list[str]) -> None:
+    if exclude:
+        print(f"  exclude: {', '.join(exclude)}")
+    else:
+        print("  exclude: (none)")
 
 def _sync_and_save(store: SettingsStore, pair: FolderPair) -> SyncResult:
     left, right = pair.resolved()

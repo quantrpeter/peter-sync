@@ -70,7 +70,7 @@ def _sync_pair(
 ) -> None:
     try:
         left, right = pair.resolved()
-        result = sync_pair(left, right, snapshot=pair.snapshot)
+        result = sync_pair(left, right, snapshot=pair.snapshot, exclude=pair.exclude)
         store.update_snapshot(pair.name, result.snapshot)
     except (SettingsError, SyncError, OSError) as exc:
         if on_status:
