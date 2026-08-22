@@ -167,7 +167,28 @@ def _cmd_watch(store: SettingsStore, args: argparse.Namespace) -> int:
     if args.cycles is None:
         print(f"Watching {target} every {args.interval}s. Press Ctrl+C to stop.")
     try:
-        return run_watmenu_exclude(store),
+        return run_watch(
+            store,
+            name=args.name,
+            interval=args.interval,
+            cycles=args.cycles,
+            on_result=_print_result,
+            on_status=print,
+        )
+    except KeyboardInterrupt:
+        print("\nStopped watching.")
+        return 0
+
+
+def _run_menu(store: SettingsStore) -> int:
+    actions = {
+        "1": lambda: _print_pairs(store),
+        "2": lambda: _menu_add(store),
+        "3": lambda: _menu_remove(store),
+        "4": lambda: _menu_sync_all(store),
+        "5": lambda: _menu_sync_one(store),
+        "6": lambda: _menu_watch(store),
+        "7": lambda: _menu_exclude(store),
         "8": lambda: _print_settings_path(store),
     }
     while True:
@@ -181,28 +202,7 @@ def _cmd_watch(store: SettingsStore, args: argparse.Namespace) -> int:
         print("5) Sync one pair")
         print("6) Watch (keep syncing)")
         print("7) Edit excluded folders")
-        print("8
-def _run_menu(store: SettingsStore) -> int:
-    actions = {
-        "1": lambda: _print_pairs(store),
-        "2": lambda: _menu_add(store),
-        "3": lambda: _menu_remove(store),
-        "4": lambda: _menu_sync_all(store),
-        "5": lambda: _menu_sync_one(store),
-        "6": lambda: _menu_watch(store),
-        "7": lambda: _print_settings_path(store),
-    }
-    while True:
-        print()
-        print("peter-sync")
-        print("----------")
-        print("1) List folder pairs")
-        print("2) Add folder pair")
-        print("3) Remove folder pair")
-        print("4) Sync all pairs")
-        print("5) Sync one pair")
-        print("6) Watch (keep syncing)")
-        print("7) Show settings file")
+        print("8) Show settings file")
         print("q) Quit")
         try:
             choice = input("Select an option: ").strip().lower()
@@ -223,13 +223,13 @@ def _run_menu(store: SettingsStore) -> int:
 
 def _menu_add(store: SettingsStore) -> None:
     name = input("Pair name: ").strip()
+    left = input("Left folder: ").strip()
+    right = input("Right folder: ").strip()
     raw_exclude = input("Exclude folders (comma-separated, blank for none): ").strip()
     exclude = [item.strip() for item in raw_exclude.split(",") if item.strip()]
     pair = store.add_pair(name, left, right, exclude=exclude)
     print(f"Saved pair {pair.name!r}")
-    _print_exclude(pair.excludetrip()
-    pair = store.add_pair(name, left, right)
-    print(f"Saved pair {pair.name!r}")
+    _print_exclude(pair.exclude)
 
 
 def _menu_remove(store: SettingsStore) -> None:
@@ -272,7 +272,12 @@ def _menu_watch(store: SettingsStore) -> None:
         raise SettingsError(f"Invalid interval: {raw}") from exc
     print(f"Watching every {interval}s. Press Ctrl+C to stop.")
     try:
-     menu_exclude(store: SettingsStore) -> None:
+        run_watch(store, name=name, interval=interval, on_result=_print_result, on_status=print)
+    except KeyboardInterrupt:
+        print("\nStopped watching.")
+
+
+def _menu_exclude(store: SettingsStore) -> None:
     if not store.pairs:
         print("No folder pairs configured.")
         return
@@ -289,21 +294,7 @@ def _menu_watch(store: SettingsStore) -> None:
 
 def _sync_and_save(store: SettingsStore, pair: FolderPair) -> SyncResult:
     left, right = pair.resolved()
-    result = sync_pair(left, right, snapshot=pair.snapshot, exclude=pair.exclude
-
-        if pair.exclude:
-            print(f"   exclude: {', '.join(pair.exclude)}")
-
-
-def _print_exclude(exclude: list[str]) -> None:
-    if exclude:
-        print(f"  exclude: {', '.join(exclude)}")
-    else:
-        print("  exclude: (none)")
-
-def _sync_and_save(store: SettingsStore, pair: FolderPair) -> SyncResult:
-    left, right = pair.resolved()
-    result = sync_pair(left, right, snapshot=pair.snapshot)
+    result = sync_pair(left, right, snapshot=pair.snapshot, exclude=pair.exclude)
     store.update_snapshot(pair.name, result.snapshot)
     _print_result(pair.name, result)
     return result
@@ -318,6 +309,15 @@ def _print_pairs(store: SettingsStore) -> None:
         print(f"{index}. {pair.name}")
         print(f"   left : {pair.left}")
         print(f"   right: {pair.right}")
+        if pair.exclude:
+            print(f"   exclude: {', '.join(pair.exclude)}")
+
+
+def _print_exclude(exclude: list[str]) -> None:
+    if exclude:
+        print(f"  exclude: {', '.join(exclude)}")
+    else:
+        print("  exclude: (none)")
 
 
 def _print_settings_path(store: SettingsStore) -> None:
@@ -336,3 +336,4 @@ def _print_result(name: str, result: SyncResult) -> None:
         print(f"  delete {action.source}")
     for relative in result.conflicts:
         print(f"  conflict {relative} (same mtime, different content)")
+

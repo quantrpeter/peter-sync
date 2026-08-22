@@ -120,6 +120,17 @@ class SettingsStore:
                 return removed
         raise SettingsError(f"No pair named {name!r}.")
 
+    def get_pair(self, name: str) -> FolderPair:
+        for pair in self.pairs:
+            if pair.name == name:
+                return pair
+        raise SettingsError(f"No pair named {name!r}.")
+
+    def update_snapshot(self, name: str, snapshot: list[str]) -> None:
+        pair = self.get_pair(name)
+        pair.snapshot = list(snapshot)
+        self.save()
+
     def update_exclude(self, name: str, exclude: Iterable[str] | None) -> FolderPair:
         pair = self.get_pair(name)
         pair.exclude = normalize_exclude(exclude)
@@ -142,18 +153,8 @@ class SettingsStore:
                 left=str(item["left"]),
                 right=str(item["right"]),
                 snapshot=list(snapshot),
-                exclude=normalize_exclude(excludeFolderPair:
-        if not isinstance(item, dict):
-            raise SettingsError("Each pair must be a JSON object.")
-        try:
-            snapshot = item.get("snapshot", [])
-            if not isinstance(snapshot, list) or not all(isinstance(entry, str) for entry in snapshot):
-                raise SettingsError("Pair snapshot must be a list of file paths.")
-            return FolderPair(
-                name=str(item["name"]),
-                left=str(item["left"]),
-                right=str(item["right"]),
-                snapshot=list(snapshot),
+                exclude=normalize_exclude(exclude),
             )
         except KeyError as exc:
             raise SettingsError(f"Pair is missing required field: {exc.args[0]}") from exc
+
