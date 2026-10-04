@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "peter-sync"
-version = "0.1.1"
+version = "0.1.2"
 description = "Bidirectional folder sync with a simple CLI menu"
 readme = "README.md"
 license = { text = "MIT" }

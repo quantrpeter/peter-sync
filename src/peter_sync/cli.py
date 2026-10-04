@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import os
 import sys
 from pathlib import Path
 
@@ -305,12 +306,22 @@ def _print_pairs(store: SettingsStore) -> None:
         print("No folder pairs configured.")
         return
     print(f"Settings: {store.path}")
-    for index, pair in enumerate(store.pairs, start=1):
-        print(f"{index}. {pair.name}")
-        print(f"   left : {pair.left}")
-        print(f"   right: {pair.right}")
+    pairs = sorted(store.pairs, key=lambda pair: pair.name.casefold())
+    index_width = len(str(len(pairs)))
+    name_width = max(len(pair.name) for pair in pairs)
+    left_width = max(len(pair.left) for pair in pairs)
+    for index, pair in enumerate(pairs, start=1):
+        name = _highlight(f"{pair.name:<{name_width}}")
+        line = f"{index:>{index_width}}. {name} : {pair.left:<{left_width}} > {pair.right}"
         if pair.exclude:
-            print(f"   exclude: {', '.join(pair.exclude)}")
+            line += f"  exclude: {', '.join(pair.exclude)}"
+        print(line)
+
+
+def _highlight(text: str) -> str:
+    if not sys.stdout.isatty() or os.environ.get("NO_COLOR"):
+        return text
+    return f"\033[36m{text}\033[0m"
 
 
 def _print_exclude(exclude: list[str]) -> None:
