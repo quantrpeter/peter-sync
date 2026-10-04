@@ -85,6 +85,11 @@ def _build_parser() -> argparse.ArgumentParser:
 
     sync_parser = sub.add_parser("sync", help="Sync one pair or all pairs")
     sync_parser.add_argument("name", nargs="?", help="Pair name (omit to sync all)")
+    sync_parser.add_argument(
+        "--progress",
+        action="store_true",
+        help="Print machine-readable progress lines for each file",
+    )
     sync_parser.set_defaults(func=_cmd_sync)
 
     watch_parser = sub.add_parser("watch", help="Keep syncing pairs until stopped")
@@ -159,7 +164,7 @@ def _cmd_sync(store: SettingsStore, args: argparse.Namespace) -> int:
         print("No folder pairs configured.")
         return 0
     for pair in pairs:
-        _sync_and_save(store, pair)
+        _sync_and_save(store, pair, progress=args.progress)
     return 0
 
 
@@ -293,12 +298,58 @@ def _menu_exclude(store: SettingsStore) -> None:
     _print_exclude(pair.exclude)
 
 
-def _sync_and_save(store: SettingsStore, pair: FolderPair) -> SyncResult:
+def _sync_and_save(
+    store: SettingsStore,
+    pair: FolderPair,
+    *,
+    progress: bool = False,
+) -> SyncResult:
     left, right = pair.resolved()
-    result = sync_pair(left, right, snapshot=pair.snapshot, exclude=pair.exclude)
+    bar = _ProgressBar(pair.name)
+    on_progress = _progress_reporter(pair.name, bar) if progress else bar.update
+    result = sync_pair(
+        left,
+        right,
+        snapshot=pair.snapshot,
+        exclude=pair.exclude,
+        on_progress=on_progress,
+    )
+    bar.finish()
     store.update_snapshot(pair.name, result.snapshot)
     _print_result(pair.name, result)
     return result
+
+
+def _progress_reporter(name: str, bar: _ProgressBar):
+    def report(done: int, total: int, relative: str) -> None:
+        bar.update(done, total, relative)
+        print(f"PROGRESS\t{name}\t{done}\t{total}\t{relative}", flush=True)
+
+    return report
+
+
+class _ProgressBar:
+    """Single-line progress bar for one pair sync. No-op when not a TTY."""
+
+    def __init__(self, name: str, width: int = 24) -> None:
+        self.name = name
+        self.width = width
+        self.enabled = sys.stdout.isatty() and not os.environ.get("NO_COLOR")
+        self._shown = False
+
+    def update(self, done: int, total: int, relative: str) -> None:
+        if not self.enabled or total < 1:
+            return
+        filled = min(self.width, round(self.width * done / total))
+        bar = "#" * filled + "-" * (self.width - filled)
+        label = relative if len(relative) <= 40 else f"...{relative[-37:]}"
+        line = f"\r{self.name}: [{bar}] {done}/{total} {label}"
+        print(line, end="", flush=True)
+        self._shown = True
+
+    def finish(self) -> None:
+        if self._shown:
+            print("\r\033[2K", end="", flush=True)
 
 
 def _print_pairs(store: SettingsStore) -> None:

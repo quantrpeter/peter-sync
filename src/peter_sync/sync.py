@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import filecmp
 import shutil
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -40,12 +40,16 @@ class SyncError(RuntimeError):
     """A folder pair cannot be synced."""
 
 
+ProgressFn = Callable[[int, int, str], None]
+
+
 def sync_pair(
     left: Path,
     right: Path,
     *,
     snapshot: Iterable[str] | None = None,
     exclude: Iterable[str] | None = None,
+    on_progress: ProgressFn | None = None,
 ) -> SyncResult:
     """Sync two folders both ways using last-write-wins.
 
@@ -57,6 +61,9 @@ def sync_pair(
     sync. New files (not in the snapshot) are copied to the other side.
     Files that disappear from one side after being snapshotted are
     deleted from the other side.
+
+    ``on_progress`` is called as ``(done, total, relative)`` before each
+    file is compared. ``total`` is the number of files to visit.
 
     ``exclude`` is a list of folder names or relative folder paths.
     A bare name such as ``node_modules`` matches that folder anywhere.
@@ -76,9 +83,12 @@ def sync_pair(
     known = {path for path in (snapshot or []) if not _is_excluded(path, excluded)}
     left_files = _index_files(left, excluded)
     right_files = _index_files(right, excluded)
-    relative_paths = set(left_files) | set(right_files) | known
+    relative_paths = sorted(set(left_files) | set(right_files) | known)
+    total = len(relative_paths)
 
-    for relative in sorted(relative_paths):
+    for done, relative in enumerate(relative_paths, start=1):
+        if on_progress:
+            on_progress(done, total, relative)
         left_file = left_files.get(relative)
         right_file = right_files.get(relative)
 

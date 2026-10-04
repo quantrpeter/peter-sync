@@ -5,6 +5,20 @@ from pathlib import Path
 from peter_sync.sync import sync_pair
 
 
+def test_progress_reports_each_file(tmp_path: Path) -> None:
+    left = tmp_path / "left"
+    right = tmp_path / "right"
+    left.mkdir()
+    right.mkdir()
+    (left / "a.txt").write_text("from left", encoding="utf-8")
+    (right / "b.txt").write_text("from right", encoding="utf-8")
+    seen: list[tuple[int, int, str]] = []
+
+    sync_pair(left, right, on_progress=lambda done, total, relative: seen.append((done, total, relative)))
+
+    assert seen == [(1, 2, "a.txt"), (2, 2, "b.txt")]
+
+
 def test_copies_new_files_both_ways(tmp_path: Path) -> None:
     left = tmp_path / "left"
     right = tmp_path / "right"
